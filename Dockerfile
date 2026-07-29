@@ -4,14 +4,14 @@ FROM python:3.9-slim
 # Set working directory inside container
 WORKDIR /app
 
-# Copy all files from backend_files folder to container working directory
+# Copy frontend code files into the container
 COPY . .
 
-# Install Python dependencies from requirements.txt without caching to reduce image size
+# Install dependencies from requirements.txt without caching
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-# Start application using Gunicorn server
-# - `-w 4`: Uses 4 worker processes for concurrent handling
-# - `-b 0.0.0.0:7860`: Binds server to port 7860 across all interfaces
-# - `app:house_price_api`: References the Flask instance defined in app.py
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:7860", "app:house_price_api"]
+# Expose Streamlit default port
+EXPOSE 8501
+
+# Command to run Streamlit app
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
