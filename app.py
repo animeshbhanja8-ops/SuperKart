@@ -1,66 +1,81 @@
 # ==============================================================================
-# FLASK BACKEND APPLICATION FOR SUPERKART SALES PREDICTION
+# STREAMLIT FRONTEND APPLICATION FOR SUPERKART SALES PREDICTION
 # ==============================================================================
 
-# Import Flask web framework modules for handling requests and JSON responses
-from flask import Flask, request, jsonify
-# Import joblib to load the serialized machine learning model pipeline
-import joblib
-# Import pandas to process incoming JSON payloads into a DataFrame format
-import pandas as pd
-# Import os to check for model file existence
-import os
+# Import Streamlit for building the interactive web UI
+import streamlit as st
+# Import requests to communicate with the Flask backend API
+import requests
+# Import json for formatting payloads
+import json
 
-# Initialize the Flask application instance
-# We alias 'app' and 'house_price_api' to match standard Gunicorn configuration expectations
-app = Flask(__name__)
-house_price_api = app
+# Set up Streamlit page configuration
+st.set_page_config(
+    page_title="SuperKart Sales Predictor",
+    page_icon="🛒",
+    layout="centered"
+)
 
-# Define the file path for the serialized machine learning model inside backend_files
-model_path = "superkart_model.joblib"
+# App Title and Description
+st.title("🛒 SuperKart Sales Prediction App")
+st.markdown("Provide the product and store details below to predict expected sales revenue.")
 
-# Load the trained model pipeline into memory when the server starts
-if os.path.exists(model_path):
-    model = joblib.load(model_path)
-    print("✅ SuperKart model loaded successfully into Flask backend.")
-else:
-    model = None
-    print("❌ Warning: Model file not found at the specified path!")
+# Define the API endpoint URL
+# Note: When running inside Docker Compose or a Docker network, 'backend' resolves to the backend container.
+# For local testing outside Docker, change this to "http://localhost:7860/predict"
+API_URL = "http://backend:7860/predict"
 
-# Define root health-check endpoint
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({
-        "status": "online",
-        "message": "SuperKart Sales Prediction Backend API is running successfully!"
-    })
+# Create a form layout for user inputs
+with st.form("prediction_form"):
+    st.subheader("📋 Input Features")
+    
+    # Example input fields based on SuperKart dataset attributes
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        product_mrp = st.number_input("Product MRP ($)", min_value=0.0, max_value=500.0, value=150.0, step=0.1)
+        product_allocated_area = st.number_input("Product Allocated Area", min_value=0.0, max_value=1000.0, value=50.0, step=1.0)
+        outlet_establishment_year = st.number_input("Outlet Establishment Year", min_value=1900, max_value=2026, value=2010, step=1)
+        
+    with col2:
+        outlet_size = st.selectbox("Outlet Size", ["Small", "Medium", "High"])
+        outlet_location_type = st.selectbox("Outlet Location Type", ["Tier 1", "Tier 2", "Tier 3"])
+        outlet_type = st.selectbox("Outlet Type", ["Supermarket Type1", "Supermarket Type2", "Supermarket Type3", "Grocery Store"])
 
-# Define prediction endpoint
-@app.route("/predict", methods=["POST"])
-def predict():
+    # Submit button for the form
+    submit_button = st.form_submit_button(label="Predict Sales")
+
+# Handle form submission and API call
+if submit_button:
+    # Construct payload dictionary matching model training features
+    # (Adjust keys as needed to match your exact feature names from X_train)
+    input_data = {
+        "Product_MRP": product_mrp,
+        "Product_Allocated_Area": product_allocated_area,
+        "Outlet_Establishment_Year": outlet_establishment_year,
+        "Outlet_Size": outlet_size,
+        "Outlet_Location_Type": outlet_location_type,
+        "Outlet_Type": outlet_type
+    }
+    
     try:
-        # Extract JSON data from the incoming HTTP request
-        json_data = request.get_json(force=True)
-        
-        # Convert JSON object or list of objects into a pandas DataFrame
-        input_df = pd.DataFrame([json_data] if isinstance(json_data, dict) else json_data)
-        
-        # Generate sales predictions using the loaded pipeline (preprocessing + model)
-        predictions = model.predict(input_df)
-        
-        # Return predictions as a formatted JSON response
-        return jsonify({
-            "success": True,
-            "predictions": predictions.tolist()
-        })
-        
+        # Send POST request to the Flask backend API
+        with st.spinner("Connecting to backend and generating prediction..."):
+            response = requests.post(API_URL, json=input_data, timeout=10)
+            
+        # Check if request was successful
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("success"):
+                predicted_sales = result["predictions"][0]
+                st.success("🎉 Prediction Successful!")
+                st.metric(label="Predicted Sales Revenue", value=f"${predicted_sales:,.2f}")
+            else:
+                st.error(f"❌ Backend Error: {result.get('error')}")
+        else:
+            st.error(f"❌ Failed to connect to backend. Status Code: {response.status_code}")
+            
+    except requests.exceptions.ConnectionError:
+        st.error("⚠️ Connection Error: Could not reach the Flask backend. Ensure both containers are running on the same Docker network.")
     except Exception as e:
-        # Return error message if prediction fails
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 400
-
-# Run the Flask app locally if executed directly
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=7860, debug=True)
+        st.error(f"❌ An unexpected error occurred: {str(e)}")
